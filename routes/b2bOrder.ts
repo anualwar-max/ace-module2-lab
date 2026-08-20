@@ -18,6 +18,9 @@ export function b2bOrder () {
     if (utils.isChallengeEnabled(challenges.rceChallenge) || utils.isChallengeEnabled(challenges.rceOccupyChallenge)) {
       const orderLinesData = body.orderLinesData || ''
       try {
+        if (isUnsafePayload(orderLinesData)) {
+          throw new Error('Blocked: potentially unsafe payload')
+        }
         const sandbox = { safeEval, orderLinesData }
         vm.createContext(sandbox)
         vm.runInContext('safeEval(orderLinesData)', sandbox, { timeout: 2000 })
@@ -35,6 +38,37 @@ export function b2bOrder () {
     } else {
       res.json({ cid: body.cid, orderNo: uniqueOrderNumber(), paymentDue: dateTwoWeeksFromNow() })
     }
+  }
+
+  function isUnsafePayload (payload: string): boolean {
+    if (typeof payload !== 'string') return false
+
+    let normalized = payload
+      .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+
+    normalized = normalized.replace(/['"+]/g, '')
+
+    const dangerousKeywords = [
+      'constructor',
+      '__proto__',
+      'prototype',
+      'process',
+      'global',
+      'require',
+      'Function',
+      'eval',
+      'exec',
+      'spawn'
+    ]
+
+    for (const keyword of dangerousKeywords) {
+      if (normalized.includes(keyword)) {
+        return true
+      }
+    }
+
+    return false
   }
 
   function uniqueOrderNumber () {
